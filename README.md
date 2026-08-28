@@ -25,7 +25,17 @@ npx claude-duo
 
 Needs Windows 10/11, [Windows Terminal](https://aka.ms/terminal), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-### From GitHub (no npm)
+### GitHub Packages
+
+Shows on the profile **Packages** tab:
+
+```bash
+npm install -g @mferasatali/claude-duo --registry=https://npm.pkg.github.com
+```
+
+Most people should still use `npx claude-duo` from [npmjs](https://www.npmjs.com/package/claude-duo).
+
+### From GitHub (source, no registry)
 
 ```bash
 git clone https://github.com/mferasatali/claude-duo.git

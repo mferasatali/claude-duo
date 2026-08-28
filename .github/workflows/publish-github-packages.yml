@@ -1,0 +1,35 @@
+name: Publish GitHub Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - bin/**
+      - ClaudeDuo.ps1
+      - Run-Claude-*.cmd
+      - .github/workflows/publish-github-packages.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@mferasatali"
+      - name: Scope package for GitHub Packages
+        run: |
+          npm pkg set name=@mferasatali/claude-duo
+          npm pkg set publishConfig.registry=https://npm.pkg.github.com
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
