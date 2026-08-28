@@ -1,0 +1,38 @@
+{
+  "name": "claude-duo",
+  "version": "1.0.0",
+  "description": "Open two Claude Code sessions in one Windows Terminal window, with optional second-account login.",
+  "bin": {
+    "claude-duo": "bin/claude-duo.js"
+  },
+  "files": [
+    "bin",
+    "ClaudeDuo.ps1",
+    "ClaudeDuo.bat",
+    "Launch-ClaudeDuo.vbs",
+    "Run-Claude-A.cmd",
+    "Run-Claude-B.cmd",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": ["win32"],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mferasatali/claude-duo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mferasatali/claude-duo/issues"
+  },
+  "homepage": "https://github.com/mferasatali/claude-duo#readme",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "windows-terminal",
+    "split-pane"
+  ],
+  "author": "Muhammad Ferasat Ali",
+  "license": "MIT"
+}

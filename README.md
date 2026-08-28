@@ -10,15 +10,28 @@ Optional: left pane = your current account, right pane = a **second Claude accou
 - [Windows Terminal](https://aka.ms/terminal)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
 
-## Install
+## Install (npm)
+
+```bash
+npm install -g claude-duo
+claude-duo
+```
+
+One-shot, no install:
+
+```bash
+npx claude-duo
+```
+
+Needs Windows 10/11, [Windows Terminal](https://aka.ms/terminal), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+
+### From GitHub (no npm)
 
 ```bash
 git clone https://github.com/mferasatali/claude-duo.git
 ```
 
-Then double-click **`ClaudeDuo.bat`**.
-
-Or click **Pin to Desktop** in the app.
+Double-click **`ClaudeDuo.bat`**, or **Pin to Desktop** in the app.
 
 ## Use
 
