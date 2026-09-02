@@ -46,10 +46,11 @@ Double-click **`ClaudeDuo.bat`**, or **Pin to Desktop** in the app.
 ## Use
 
 1. Pick the project folder(s).
-2. Keep **Right pane: second Claude account** checked if you want two logins.
+2. Choose **Left pane account** and **Right pane account** (must be different).
 3. Click **Open 2 Claude Code**.
-4. Left pane uses your default Claude login. Right pane asks you to sign in once with the second account (saved under `%USERPROFILE%\.claude-account-2`).
-5. Click a pane, type a task, press Enter.
+4. Left pane uses `~/.claude` (Personal). Right pane uses its own folder (e.g. `~/.claude-account-2` for Work).
+5. **First time per account:** in that pane type `/login` once. Logins stay saved in that account's config folder.
+6. Use **Open left/right account only** to switch to a single account in a new window.
 
 Do not type `claude` in a blank Command Prompt. The tool starts it for you.
 
@@ -64,8 +65,8 @@ powershell -ExecutionPolicy Bypass -File .\ClaudeDuo.ps1 -NoGui -Left "C:\projA"
 ## How it works
 
 - Uses Windows Terminal split panes (`wt.exe`).
-- Account A runs with your normal Claude config.
-- Account B sets `CLAUDE_CONFIG_DIR` so logins do not overwrite each other.
+- Each pane sets `CLAUDE_CONFIG_DIR` to an isolated folder so logins, history, and settings never mix.
+- Settings (folders, accounts, layout) auto-save to `%APPDATA%\ClaudeDuo\config.json`.
 
 ## License
 

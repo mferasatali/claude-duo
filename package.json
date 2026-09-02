@@ -1,6 +1,6 @@
 {
   "name": "claude-duo",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Open two Claude Code sessions in one Windows Terminal window, with optional second-account login.",
   "bin": {
     "claude-duo": "bin/claude-duo.js"
@@ -12,6 +12,7 @@
     "Launch-ClaudeDuo.vbs",
     "Run-Claude-A.cmd",
     "Run-Claude-B.cmd",
+    "Run-Claude-Account.cmd",
     "README.md",
     "LICENSE"
   ],

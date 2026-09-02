@@ -44,20 +44,50 @@ function Find-WindowsTerminal {
     return $null
 }
 
+function Get-AccountCatalog {
+    return [ordered]@{
+        default  = @{ Label = 'Personal (default ~/.claude)'; Dir = 'default' }
+        account2 = @{ Label = 'Work (account 2)'; Dir = (Join-Path $env:USERPROFILE '.claude-account-2') }
+        account3 = @{ Label = 'Other (account 3)'; Dir = (Join-Path $env:USERPROFILE '.claude-account-3') }
+    }
+}
+
+function Resolve-AccountDir {
+    param([string]$AccountId)
+    $catalog = Get-AccountCatalog
+    if (-not $catalog.Contains($AccountId)) { return 'default' }
+    return [string]$catalog[$AccountId].Dir
+}
+
+function Resolve-AccountLabel {
+    param([string]$AccountId)
+    $catalog = Get-AccountCatalog
+    if (-not $catalog.Contains($AccountId)) { return 'Personal' }
+    $label = [string]$catalog[$AccountId].Label
+    if ($label -match '^([^(]+)') { return $matches[1].Trim() }
+    return $label
+}
+
 function Read-Config {
     $defaults = [ordered]@{
         LeftFolder   = [Environment]::GetFolderPath('MyDocuments')
         RightFolder  = [Environment]::GetFolderPath('MyDocuments')
-        SameFolder     = $true
-        Split          = 'vertical'
-        Maximized      = $true
-        SecondAccount  = $true
+        SameFolder   = $true
+        Split        = 'vertical'
+        Maximized    = $true
+        LeftAccount  = 'default'
+        RightAccount = 'account2'
+        SecondAccount = $true
     }
     if (-not (Test-Path -LiteralPath $ConfigPath)) { return $defaults }
     try {
         $raw = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($key in @($defaults.Keys)) {
             if ($null -ne $raw.$key) { $defaults[$key] = $raw.$key }
+        }
+        if ($null -eq $raw.LeftAccount -and $null -ne $raw.SecondAccount) {
+            $defaults.LeftAccount = 'default'
+            $defaults.RightAccount = if ([bool]$raw.SecondAccount) { 'account2' } else { 'default' }
         }
     } catch { }
     return $defaults
@@ -68,7 +98,47 @@ function Save-Config {
     if (-not (Test-Path -LiteralPath $ConfigDir)) {
         New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
     }
-    ($Config | ConvertTo-Json) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+    ($Config | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+}
+
+function Get-GuiConfigSnapshot {
+    param($Ui)
+    $leftAccount = if ($Ui.LeftAccount.SelectedItem) { [string]$Ui.LeftAccount.SelectedItem.Tag } else { 'default' }
+    $rightAccount = if ($Ui.RightAccount.SelectedItem) { [string]$Ui.RightAccount.SelectedItem.Tag } else { 'account2' }
+    return @{
+        LeftFolder    = $Ui.Left.Text.Trim()
+        RightFolder   = $Ui.Right.Text.Trim()
+        SameFolder    = [bool]$Ui.Same.Checked
+        Split         = if ($Ui.Stack.Checked) { 'horizontal' } else { 'vertical' }
+        Maximized     = [bool]$Ui.Max.Checked
+        LeftAccount   = $leftAccount
+        RightAccount  = $rightAccount
+        SecondAccount = ($rightAccount -ne 'default')
+    }
+}
+
+function Select-AccountComboItem {
+    param($Combo, [string]$AccountId)
+    foreach ($item in $Combo.Items) {
+        if ([string]$item.Tag -eq $AccountId) {
+            $Combo.SelectedItem = $item
+            return
+        }
+    }
+    if ($Combo.Items.Count -gt 0) { $Combo.SelectedIndex = 0 }
+}
+
+function Build-AccountLaunchCmd {
+    param([string]$AccountId)
+    $launcher = Join-Path $ScriptDir 'Run-Claude-Account.cmd'
+    $accountDir = Resolve-AccountDir $AccountId
+    $label = (Resolve-AccountLabel $AccountId) -replace '\s+', '-'
+    $quotedLauncher = ConvertTo-WtQuoted $launcher
+    if ($accountDir -eq 'default') {
+        return "cmd.exe /k $quotedLauncher default $label"
+    }
+    $quotedDir = ConvertTo-WtQuoted $accountDir
+    return "cmd.exe /k $quotedLauncher $quotedDir $label"
 }
 
 function Show-Alert {
@@ -93,7 +163,8 @@ function Start-ClaudeDuo {
         [string]$RightFolder,
         [string]$SplitMode,
         [bool]$MaximizeWindow,
-        [bool]$SecondAccount
+        [string]$LeftAccount = 'default',
+        [string]$RightAccount = 'account2'
     )
 
     $wt = Find-WindowsTerminal
@@ -112,21 +183,52 @@ function Start-ClaudeDuo {
         throw "Right folder does not exist:`n$RightFolder"
     }
 
-    # Start-Process joins -ArgumentList with spaces and does not quote.
-    # Titles must not contain spaces, and -d paths with spaces must be quoted.
+    if ($LeftAccount -eq $RightAccount) {
+        throw "Left and right panes use the same account.`nPick different accounts in the dropdowns, or use 'Open one account' below."
+    }
+
     $splitFlag = if ($SplitMode -eq 'horizontal') { '-H' } else { '-V' }
     $leftDir = ConvertTo-WtQuoted $LeftFolder
     $rightDir = ConvertTo-WtQuoted $RightFolder
-    $leftCmd = ConvertTo-WtQuoted (Join-Path $ScriptDir 'Run-Claude-A.cmd')
-    $rightLauncher = if ($SecondAccount) { 'Run-Claude-B.cmd' } else { 'Run-Claude-A.cmd' }
-    $rightCmd = ConvertTo-WtQuoted (Join-Path $ScriptDir $rightLauncher)
+    $leftCmd = Build-AccountLaunchCmd $LeftAccount
+    $rightCmd = Build-AccountLaunchCmd $RightAccount
+    $leftTitle = (Resolve-AccountLabel $LeftAccount) -replace '\s+', '-'
+    $rightTitle = (Resolve-AccountLabel $RightAccount) -replace '\s+', '-'
 
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add('--window new')
     if ($MaximizeWindow) { $parts.Add('--maximized') }
-    $parts.Add("new-tab --title Claude-A --suppressApplicationTitle -d $leftDir cmd.exe /k $leftCmd")
+    $parts.Add("new-tab --title Claude-$leftTitle --suppressApplicationTitle -d $leftDir $leftCmd")
     $parts.Add(';')
-    $parts.Add("split-pane $splitFlag -s 0.5 --title Claude-B --suppressApplicationTitle -d $rightDir cmd.exe /k $rightCmd")
+    $parts.Add("split-pane $splitFlag -s 0.5 --title Claude-$rightTitle --suppressApplicationTitle -d $rightDir $rightCmd")
+    $arguments = ($parts -join ' ')
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $wt
+    $psi.Arguments = $arguments
+    $psi.UseShellExecute = $true
+    [void][System.Diagnostics.Process]::Start($psi)
+}
+
+function Start-SingleClaudeAccount {
+    param(
+        [string]$Folder,
+        [string]$AccountId,
+        [bool]$MaximizeWindow = $true
+    )
+
+    $wt = Find-WindowsTerminal
+    $claude = Find-ClaudeCmd
+    if (-not $wt) { throw "Windows Terminal was not found." }
+    if (-not $claude) { throw "Claude Code was not found." }
+    if (-not (Test-Path -LiteralPath $Folder)) { throw "Folder does not exist:`n$Folder" }
+
+    $dir = ConvertTo-WtQuoted $Folder
+    $cmd = Build-AccountLaunchCmd $AccountId
+    $title = (Resolve-AccountLabel $AccountId) -replace '\s+', '-'
+    $parts = @('--window new')
+    if ($MaximizeWindow) { $parts += '--maximized' }
+    $parts += "new-tab --title Claude-$title --suppressApplicationTitle -d $dir $cmd"
     $arguments = ($parts -join ' ')
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -192,6 +294,28 @@ function New-Button {
     return $btn
 }
 
+function New-ComboBox {
+    param($X, $Y, $Width = 420)
+    $combo = New-Object System.Windows.Forms.ComboBox
+    $combo.Location = New-Object System.Drawing.Point($X, $Y)
+    $combo.Size = New-Object System.Drawing.Size($Width, 28)
+    $combo.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $combo.DropDownStyle = 'DropDownList'
+    $combo.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#2A2622')
+    $combo.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#F4EFE8')
+    $combo.FlatStyle = 'Flat'
+    return $combo
+}
+
+function Populate-AccountCombo {
+    param($Combo)
+    $Combo.Items.Clear()
+    foreach ($entry in (Get-AccountCatalog).GetEnumerator()) {
+        [void]$Combo.Items.Add([PSCustomObject]@{ Tag = $entry.Key; Text = $entry.Value.Label })
+    }
+    $Combo.DisplayMember = 'Text'
+}
+
 function Show-Gui {
     $config = Read-Config
     $bg = [System.Drawing.ColorTranslator]::FromHtml('#161412')
@@ -199,7 +323,7 @@ function Show-Gui {
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $AppName
-    $form.Size = New-Object System.Drawing.Size(520, 540)
+    $form.Size = New-Object System.Drawing.Size(520, 640)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedSingle'
     $form.MaximizeBox = $false
@@ -208,7 +332,7 @@ function Show-Gui {
     $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
     $form.Controls.Add((New-Label $AppName 24 18 460 32 '#F4EFE8' 18 $true))
-    $form.Controls.Add((New-Label 'Two Claude Code sessions in one window.' 24 52 460 22 '#B7A99A' 9))
+    $form.Controls.Add((New-Label 'Two Claude Code sessions — pick a different account per pane.' 24 52 460 22 '#B7A99A' 9))
 
     $folderPanel = New-Object System.Windows.Forms.Panel
     $folderPanel.Location = New-Object System.Drawing.Point(20, 88)
@@ -238,9 +362,28 @@ function Show-Gui {
     $chkSame.Checked = [bool]$config.SameFolder
     $folderPanel.Controls.Add($chkSame)
 
+    $accountPanel = New-Object System.Windows.Forms.Panel
+    $accountPanel.Location = New-Object System.Drawing.Point(20, 268)
+    $accountPanel.Size = New-Object System.Drawing.Size(464, 108)
+    $accountPanel.BackColor = $panel
+    $form.Controls.Add($accountPanel)
+
+    $accountPanel.Controls.Add((New-Label 'Left pane account' 16 12 300 20 '#B7A99A' 8))
+    $cmbLeftAccount = New-ComboBox 16 32 420
+    Populate-AccountCombo $cmbLeftAccount
+    Select-AccountComboItem $cmbLeftAccount ([string]$config.LeftAccount)
+    $accountPanel.Controls.Add($cmbLeftAccount)
+
+    $accountPanel.Controls.Add((New-Label 'Right pane account' 16 58 300 20 '#B7A99A' 8))
+    $cmbRightAccount = New-ComboBox 16 78 420
+    Populate-AccountCombo $cmbRightAccount
+    $rightAccountId = if ($config.RightAccount) { [string]$config.RightAccount } elseif ([bool]$config.SecondAccount) { 'account2' } else { 'default' }
+    Select-AccountComboItem $cmbRightAccount $rightAccountId
+    $accountPanel.Controls.Add($cmbRightAccount)
+
     $optPanel = New-Object System.Windows.Forms.Panel
-    $optPanel.Location = New-Object System.Drawing.Point(20, 268)
-    $optPanel.Size = New-Object System.Drawing.Size(464, 92)
+    $optPanel.Location = New-Object System.Drawing.Point(20, 388)
+    $optPanel.Size = New-Object System.Drawing.Size(464, 72)
     $optPanel.BackColor = $panel
     $form.Controls.Add($optPanel)
 
@@ -268,39 +411,44 @@ function Show-Gui {
     $chkMax.Checked = [bool]$config.Maximized
     $optPanel.Controls.Add($chkMax)
 
-    $chkSecond = New-Object System.Windows.Forms.CheckBox
-    $chkSecond.Text = 'Right pane: second Claude account (login once)'
-    $chkSecond.Location = New-Object System.Drawing.Point(16, 50)
-    $chkSecond.Size = New-Object System.Drawing.Size(430, 24)
-    $chkSecond.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#F4EFE8')
-    if ($null -eq $config.SecondAccount) { $chkSecond.Checked = $true } else { $chkSecond.Checked = [bool]$config.SecondAccount }
-    $optPanel.Controls.Add($chkSecond)
+    $optPanel.Controls.Add((New-Label 'Each account keeps its own /login. First open: type /login in that pane once.' 16 44 430 22 '#B7A99A' 8))
 
-    $btnLaunch = New-Button 'Open 2 Claude Code' 20 388 300 44 '#D97757' '#1A120E'
+    $btnLaunch = New-Button 'Open 2 Claude Code' 20 476 300 44 '#D97757' '#1A120E'
     $btnLaunch.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
     $form.Controls.Add($btnLaunch)
 
-    $btnShortcut = New-Button 'Pin to Desktop' 328 388 156 44 '#3A342E' '#F4EFE8'
+    $btnShortcut = New-Button 'Pin to Desktop' 328 476 156 44 '#3A342E' '#F4EFE8'
     $form.Controls.Add($btnShortcut)
+
+    $btnOpenLeft = New-Button 'Open left account only' 20 532 220 36 '#3A342E' '#F4EFE8'
+    $form.Controls.Add($btnOpenLeft)
+
+    $btnOpenRight = New-Button 'Open right account only' 264 532 220 36 '#3A342E' '#F4EFE8'
+    $form.Controls.Add($btnOpenRight)
 
     $claudePath = Find-ClaudeCmd
     $wtPath = Find-WindowsTerminal
     $claudeOk = if ($claudePath) { 'Claude Code found' } else { 'Claude Code NOT found' }
     $wtOk = if ($wtPath) { 'Windows Terminal found' } else { 'Windows Terminal NOT found' }
     $statusColor = if ($claudePath -and $wtPath) { '#8FBF8A' } else { '#E08A6A' }
-    $status = New-Label "$claudeOk  ·  $wtOk" 24 444 460 22 $statusColor 8
+    $status = New-Label "$claudeOk  ·  $wtOk  ·  Settings auto-save" 24 580 460 22 $statusColor 8
     $form.Controls.Add($status)
 
     $ui = @{
-        Left       = $txtLeft
-        Right      = $txtRight
-        BrowseB    = $btnBrowseB
-        Same       = $chkSame
-        Side       = $radioSide
-        Stack      = $radioStack
-        Max        = $chkMax
-        Second     = $chkSecond
+        Left         = $txtLeft
+        Right        = $txtRight
+        BrowseB      = $btnBrowseB
+        Same         = $chkSame
+        Side         = $radioSide
+        Stack        = $radioStack
+        Max          = $chkMax
+        LeftAccount  = $cmbLeftAccount
+        RightAccount = $cmbRightAccount
     }
+
+    $persistConfig = {
+        try { Save-Config (Get-GuiConfigSnapshot $ui) } catch { }
+    }.GetNewClosure()
 
     $syncRight = {
         if ($ui.Same.Checked) {
@@ -322,27 +470,49 @@ function Show-Gui {
         if ($dialog.ShowDialog() -eq 'OK') {
             $box.Text = $dialog.SelectedPath
             & $syncRight
+            & $persistConfig
         }
     }
 
     $btnBrowseA.Add_Click({ & $pickFolder $ui.Left }.GetNewClosure())
     $btnBrowseB.Add_Click({ & $pickFolder $ui.Right }.GetNewClosure())
-    $chkSame.Add_CheckedChanged({ & $syncRight }.GetNewClosure())
-    $txtLeft.Add_TextChanged({ if ($ui.Same.Checked) { $ui.Right.Text = $ui.Left.Text } }.GetNewClosure())
+    $chkSame.Add_CheckedChanged({ & $syncRight; & $persistConfig }.GetNewClosure())
+    $txtLeft.Add_TextChanged({ if ($ui.Same.Checked) { $ui.Right.Text = $ui.Left.Text }; & $persistConfig }.GetNewClosure())
+    $txtRight.Add_TextChanged({ & $persistConfig }.GetNewClosure())
+    $radioSide.Add_CheckedChanged({ if ($radioSide.Checked) { & $persistConfig } }.GetNewClosure())
+    $radioStack.Add_CheckedChanged({ if ($radioStack.Checked) { & $persistConfig } }.GetNewClosure())
+    $chkMax.Add_CheckedChanged({ & $persistConfig }.GetNewClosure())
+    $cmbLeftAccount.Add_SelectedIndexChanged({ & $persistConfig }.GetNewClosure())
+    $cmbRightAccount.Add_SelectedIndexChanged({ & $persistConfig }.GetNewClosure())
+    $form.Add_FormClosing({ & $persistConfig }.GetNewClosure())
     & $syncRight
+    & $persistConfig
 
     $btnLaunch.Add_Click({
-        $splitMode = if ($ui.Stack.Checked) { 'horizontal' } else { 'vertical' }
-        $cfg = @{
-            LeftFolder  = $ui.Left.Text.Trim()
-            RightFolder = $ui.Right.Text.Trim()
-            SameFolder  = [bool]$ui.Same.Checked
-            Split       = $splitMode
-            Maximized     = [bool]$ui.Max.Checked
-            SecondAccount = [bool]$ui.Second.Checked
-        }
+        $cfg = Get-GuiConfigSnapshot $ui
         try {
-            Start-ClaudeDuo -LeftFolder $cfg.LeftFolder -RightFolder $cfg.RightFolder -SplitMode $cfg.Split -MaximizeWindow $cfg.Maximized -SecondAccount $cfg.SecondAccount
+            Start-ClaudeDuo -LeftFolder $cfg.LeftFolder -RightFolder $cfg.RightFolder -SplitMode $cfg.Split -MaximizeWindow $cfg.Maximized -LeftAccount $cfg.LeftAccount -RightAccount $cfg.RightAccount
+            Save-Config $cfg
+        } catch {
+            Show-Alert $_.Exception.Message
+        }
+    }.GetNewClosure())
+
+    $btnOpenLeft.Add_Click({
+        $cfg = Get-GuiConfigSnapshot $ui
+        try {
+            Start-SingleClaudeAccount -Folder $cfg.LeftFolder -AccountId $cfg.LeftAccount -MaximizeWindow $cfg.Maximized
+            Save-Config $cfg
+        } catch {
+            Show-Alert $_.Exception.Message
+        }
+    }.GetNewClosure())
+
+    $btnOpenRight.Add_Click({
+        $cfg = Get-GuiConfigSnapshot $ui
+        try {
+            $folder = if ($cfg.SameFolder) { $cfg.LeftFolder } else { $cfg.RightFolder }
+            Start-SingleClaudeAccount -Folder $folder -AccountId $cfg.RightAccount -MaximizeWindow $cfg.Maximized
             Save-Config $cfg
         } catch {
             Show-Alert $_.Exception.Message
@@ -368,8 +538,9 @@ if ($NoGui) {
     $rightFolder = if ($Right) { $Right } else { if ([bool]$cfg.SameFolder) { $leftFolder } else { [string]$cfg.RightFolder } }
     $splitMode = if ($PSBoundParameters.ContainsKey('Split')) { $Split } else { [string]$cfg.Split }
     $max = if ($PSBoundParameters.ContainsKey('Maximized')) { [bool]$Maximized } else { [bool]$cfg.Maximized }
-    $second = if ($null -eq $cfg.SecondAccount) { $true } else { [bool]$cfg.SecondAccount }
-    Start-ClaudeDuo -LeftFolder $leftFolder -RightFolder $rightFolder -SplitMode $splitMode -MaximizeWindow $max -SecondAccount $second
+    $leftAccount = if ($cfg.LeftAccount) { [string]$cfg.LeftAccount } else { 'default' }
+    $rightAccount = if ($cfg.RightAccount) { [string]$cfg.RightAccount } elseif ([bool]$cfg.SecondAccount) { 'account2' } else { 'default' }
+    Start-ClaudeDuo -LeftFolder $leftFolder -RightFolder $rightFolder -SplitMode $splitMode -MaximizeWindow $max -LeftAccount $leftAccount -RightAccount $rightAccount
 } else {
     Show-Gui
 }
