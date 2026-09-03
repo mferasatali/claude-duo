@@ -1,31 +1,27 @@
 @echo off
 REM Universal Claude Code launcher with isolated config directory per account.
-REM Usage: Run-Claude-Account.cmd [configDir|default] [label]
+REM Usage: Run-Claude-Account.cmd [configDir|default] [label] [email]
 REM IMPORTANT: no setlocal — CLAUDE_CONFIG_DIR must stay in this pane after Claude exits.
 
 set "PATH=C:\nodejs;%APPDATA%\npm;%PATH%"
 set "ACCOUNT_DIR=%~1"
 set "ACCOUNT_LABEL=%~2"
+set "ACCOUNT_EMAIL=%~3"
 if "%ACCOUNT_LABEL%"=="" set "ACCOUNT_LABEL=Claude"
+if "%ACCOUNT_EMAIL%"=="" set "ACCOUNT_EMAIL=%ACCOUNT_LABEL%"
 
 if /I "%ACCOUNT_DIR%"=="default" (
   rem Default Claude account: do NOT set CLAUDE_CONFIG_DIR (uses ~/.claude + ~/.claude.json)
   set "CLAUDE_CONFIG_DIR="
-  set "ACCOUNT_HOME=%USERPROFILE%\.claude"
 ) else if not "%ACCOUNT_DIR%"=="" (
   set "CLAUDE_CONFIG_DIR=%ACCOUNT_DIR%"
-  set "ACCOUNT_HOME=%ACCOUNT_DIR%"
   if not exist "%CLAUDE_CONFIG_DIR%" mkdir "%CLAUDE_CONFIG_DIR%"
 ) else (
   set "CLAUDE_CONFIG_DIR="
-  set "ACCOUNT_HOME=%USERPROFILE%\.claude"
 )
 
-rem Resolve logged-in email for the pane title (regex — avoids broken JSON)
-set "ACCOUNT_EMAIL="
-for /f "usebackq delims=" %%E in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$homes=@($env:ACCOUNT_HOME,$env:USERPROFILE,(Join-Path $env:USERPROFILE '.claude')); foreach($h in $homes){ foreach($n in @('.claude.json', (Join-Path $h '.claude.json')) ){ $p= if([IO.Path]::IsPathRooted($n)){$n}else{Join-Path $h $n}; if(Test-Path -LiteralPath $p){ $t=Get-Content -LiteralPath $p -Raw -ErrorAction SilentlyContinue; if($t){ $m=[regex]::Match($t,'\"emailAddress\"\s*:\s*\"([^\"]+)\"'); if($m.Success){ $m.Groups[1].Value; exit 0 } } } } }; exit 0"`) do set "ACCOUNT_EMAIL=%%E"
-
-if not defined ACCOUNT_EMAIL set "ACCOUNT_EMAIL=%ACCOUNT_LABEL%"
+REM Email is passed in as arg 3 from ClaudeDuo.ps1.
+REM Do not inline PowerShell here: cmd.exe treats ) inside for /f as the end of the command.
 
 :set_title
 title %ACCOUNT_EMAIL%

@@ -1,6 +1,6 @@
 {
   "name": "claude-duo",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Open two Claude Code sessions in one Windows Terminal window, with per-pane account isolation, email titles, and sticky login after exit.",
   "bin": {
     "claude-duo": "bin/claude-duo.js"

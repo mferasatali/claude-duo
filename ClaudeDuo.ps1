@@ -174,11 +174,12 @@ function Build-AccountLaunchCmd {
     $accountDir = Resolve-AccountDir $AccountId
     $label = (Resolve-AccountLabel $AccountId) -replace '\s+', '-'
     $quotedLauncher = ConvertTo-WtQuoted $launcher
+    $quotedEmail = ConvertTo-WtQuoted (Resolve-AccountTitle $AccountId)
     if ($accountDir -eq 'default') {
-        return "cmd.exe /k $quotedLauncher default $label"
+        return "cmd.exe /k $quotedLauncher default $label $quotedEmail"
     }
     $quotedDir = ConvertTo-WtQuoted $accountDir
-    return "cmd.exe /k $quotedLauncher $quotedDir $label"
+    return "cmd.exe /k $quotedLauncher $quotedDir $label $quotedEmail"
 }
 
 function Show-Alert {
