@@ -49,8 +49,10 @@ Double-click **`ClaudeDuo.bat`**, or **Pin to Desktop** in the app.
 2. Choose **Left pane account** and **Right pane account** (must be different).
 3. Click **Open 2 Claude Code**.
 4. Left pane uses `~/.claude` (Personal). Right pane uses its own folder (e.g. `~/.claude-account-2` for Work).
-5. **First time per account:** in that pane type `/login` once. Logins stay saved in that account's config folder.
-6. Use **Open left/right account only** to switch to a single account in a new window.
+5. Each pane tab title shows the **logged-in Claude email** (after `/login`).
+6. **First time per account:** in that pane type `/login` once. Logins stay saved in that account's config folder.
+7. If you `/exit` Claude, the pane **keeps the same account**. Press `R` to restart, or `cd` to another project and type `claude` again.
+8. Use **Open left/right account only** to switch to a single account in a new window.
 
 Do not type `claude` in a blank Command Prompt. The tool starts it for you.
 
@@ -66,6 +68,8 @@ powershell -ExecutionPolicy Bypass -File .\ClaudeDuo.ps1 -NoGui -Left "C:\projA"
 
 - Uses Windows Terminal split panes (`wt.exe`).
 - Each pane sets `CLAUDE_CONFIG_DIR` to an isolated folder so logins, history, and settings never mix.
+- Pane titles show the account email from `oauthAccount.emailAddress`.
+- After Claude exits, `CLAUDE_CONFIG_DIR` stays in that pane so `claude` does not fall back to the global login.
 - Settings (folders, accounts, layout) auto-save to `%APPDATA%\ClaudeDuo\config.json`.
 
 ## License

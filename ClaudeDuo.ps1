@@ -44,11 +44,41 @@ function Find-WindowsTerminal {
     return $null
 }
 
+function Get-AccountEmail {
+    param([string]$AccountDir)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($AccountDir -eq 'default' -or [string]::IsNullOrWhiteSpace($AccountDir)) {
+        $candidates.Add((Join-Path $env:USERPROFILE '.claude.json'))
+        $candidates.Add((Join-Path $env:USERPROFILE '.claude\.claude.json'))
+    } else {
+        $candidates.Add((Join-Path $AccountDir '.claude.json'))
+        $candidates.Add((Join-Path $AccountDir '.claude\.claude.json'))
+        $candidates.Add((Join-Path $env:USERPROFILE '.claude.json'))
+    }
+    foreach ($path in $candidates) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        try {
+            $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop
+            $match = [regex]::Match($raw, '"emailAddress"\s*:\s*"([^"]+)"')
+            if ($match.Success) { return $match.Groups[1].Value }
+        } catch { }
+    }
+    return $null
+}
+
 function Get-AccountCatalog {
+    $dir2 = Join-Path $env:USERPROFILE '.claude-account-2'
+    $dir3 = Join-Path $env:USERPROFILE '.claude-account-3'
+    $emailDefault = Get-AccountEmail 'default'
+    $email2 = Get-AccountEmail $dir2
+    $email3 = Get-AccountEmail $dir3
+    $labelDefault = if ($emailDefault) { "Personal ($emailDefault)" } else { 'Personal (default ~/.claude)' }
+    $label2 = if ($email2) { "Work ($email2)" } else { 'Work (account 2)' }
+    $label3 = if ($email3) { "Other ($email3)" } else { 'Other (account 3)' }
     return [ordered]@{
-        default  = @{ Label = 'Personal (default ~/.claude)'; Dir = 'default' }
-        account2 = @{ Label = 'Work (account 2)'; Dir = (Join-Path $env:USERPROFILE '.claude-account-2') }
-        account3 = @{ Label = 'Other (account 3)'; Dir = (Join-Path $env:USERPROFILE '.claude-account-3') }
+        default  = @{ Label = $labelDefault; Dir = 'default'; Email = $emailDefault }
+        account2 = @{ Label = $label2; Dir = $dir2; Email = $email2 }
+        account3 = @{ Label = $label3; Dir = $dir3; Email = $email3 }
     }
 }
 
@@ -66,6 +96,16 @@ function Resolve-AccountLabel {
     $label = [string]$catalog[$AccountId].Label
     if ($label -match '^([^(]+)') { return $matches[1].Trim() }
     return $label
+}
+
+function Resolve-AccountTitle {
+    param([string]$AccountId)
+    $catalog = Get-AccountCatalog
+    if (-not $catalog.Contains($AccountId)) { return 'Claude-Personal' }
+    $email = [string]$catalog[$AccountId].Email
+    if (-not [string]::IsNullOrWhiteSpace($email)) { return $email }
+    $label = Resolve-AccountLabel $AccountId
+    return ("Claude-" + ($label -replace '\s+', '-'))
 }
 
 function Read-Config {
@@ -192,15 +232,15 @@ function Start-ClaudeDuo {
     $rightDir = ConvertTo-WtQuoted $RightFolder
     $leftCmd = Build-AccountLaunchCmd $LeftAccount
     $rightCmd = Build-AccountLaunchCmd $RightAccount
-    $leftTitle = (Resolve-AccountLabel $LeftAccount) -replace '\s+', '-'
-    $rightTitle = (Resolve-AccountLabel $RightAccount) -replace '\s+', '-'
+    $leftTitle = ConvertTo-WtQuoted (Resolve-AccountTitle $LeftAccount)
+    $rightTitle = ConvertTo-WtQuoted (Resolve-AccountTitle $RightAccount)
 
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add('--window new')
     if ($MaximizeWindow) { $parts.Add('--maximized') }
-    $parts.Add("new-tab --title Claude-$leftTitle --suppressApplicationTitle -d $leftDir $leftCmd")
+    $parts.Add("new-tab --title $leftTitle --suppressApplicationTitle -d $leftDir $leftCmd")
     $parts.Add(';')
-    $parts.Add("split-pane $splitFlag -s 0.5 --title Claude-$rightTitle --suppressApplicationTitle -d $rightDir $rightCmd")
+    $parts.Add("split-pane $splitFlag -s 0.5 --title $rightTitle --suppressApplicationTitle -d $rightDir $rightCmd")
     $arguments = ($parts -join ' ')
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -225,10 +265,10 @@ function Start-SingleClaudeAccount {
 
     $dir = ConvertTo-WtQuoted $Folder
     $cmd = Build-AccountLaunchCmd $AccountId
-    $title = (Resolve-AccountLabel $AccountId) -replace '\s+', '-'
+    $title = ConvertTo-WtQuoted (Resolve-AccountTitle $AccountId)
     $parts = @('--window new')
     if ($MaximizeWindow) { $parts += '--maximized' }
-    $parts += "new-tab --title Claude-$title --suppressApplicationTitle -d $dir $cmd"
+    $parts += "new-tab --title $title --suppressApplicationTitle -d $dir $cmd"
     $arguments = ($parts -join ' ')
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -411,7 +451,7 @@ function Show-Gui {
     $chkMax.Checked = [bool]$config.Maximized
     $optPanel.Controls.Add($chkMax)
 
-    $optPanel.Controls.Add((New-Label 'Each account keeps its own /login. First open: type /login in that pane once.' 16 44 430 22 '#B7A99A' 8))
+    $optPanel.Controls.Add((New-Label 'Pane titles show account email. After /exit, press R or type claude (same login stays).' 16 44 430 22 '#B7A99A' 8))
 
     $btnLaunch = New-Button 'Open 2 Claude Code' 20 476 300 44 '#D97757' '#1A120E'
     $btnLaunch.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
